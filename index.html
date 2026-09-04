@@ -9,6 +9,34 @@
     <meta property="og:description" content="Site oficial da Barbearia Fiais com agendamento online via WhatsApp, tabela de serviços e galeria de fotos." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      (function() {
+        try {
+          var nativeFetch = typeof window !== 'undefined' && window.fetch ? window.fetch.bind(window) : undefined;
+          var activeFetch = nativeFetch;
+          var desc = {
+            get: function() {
+              return activeFetch;
+            },
+            set: function(newFetch) {
+              activeFetch = newFetch;
+            },
+            configurable: true,
+            enumerable: true
+          };
+          if (typeof window !== 'undefined') {
+            Object.defineProperty(window, 'fetch', desc);
+          }
+          if (typeof globalThis !== 'undefined' && globalThis !== window) {
+            try {
+              Object.defineProperty(globalThis, 'fetch', desc);
+            } catch (e) {}
+          }
+        } catch (err) {
+          // ignore if already non-configurable
+        }
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet" />

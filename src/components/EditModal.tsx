@@ -14,7 +14,9 @@ import {
   Instagram, 
   Image as ImageIcon,
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  Lock,
+  KeyRound
 } from 'lucide-react';
 import { BarbershopConfig, Service, GalleryItem } from '../types';
 import { cleanPhoneForWhatsApp } from '../data/barbershop';
@@ -357,6 +359,33 @@ export function EditModal({ isOpen, onClose, config, onSave, onReset }: EditModa
                       className="w-full rounded-md border border-[#c7a767]/30 bg-[#082338] px-3 py-2 text-sm text-white focus:border-[#c7a767] focus:outline-none"
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* Senha de Acesso do Dono */}
+              <div className="rounded-lg border border-[#c7a767]/25 bg-[#041827]/60 p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-[#c7a767] flex items-center gap-1.5">
+                    <KeyRound className="h-4 w-4" /> Senha de Acesso do Dono (PIN)
+                  </span>
+                  <span className="text-[11px] text-[#f6f1e7]/60">
+                    Protege as edições de clientes comuns
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-[#e2d0a3] mb-1">
+                    Senha do Barbeiro / Dono
+                  </label>
+                  <input
+                    type="password"
+                    value={form.adminPin || '1999'}
+                    onChange={(e) => setForm({ ...form, adminPin: e.target.value })}
+                    placeholder="Digite a nova senha"
+                    className="w-full max-w-xs rounded-md border border-[#c7a767]/30 bg-[#082338] px-3 py-2 text-sm text-white focus:border-[#c7a767] focus:outline-none"
+                  />
+                  <p className="mt-1 text-[11px] text-[#f6f1e7]/60">
+                    Apenas quem souber essa senha poderá abrir o painel de edição da barbearia.
+                  </p>
                 </div>
               </div>
             </div>

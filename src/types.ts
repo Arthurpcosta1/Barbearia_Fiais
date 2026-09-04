@@ -30,6 +30,7 @@ export type BarbershopConfig = {
   openingDays: string;
   openingHours: string;
   googleMapsUrl: string;
+  adminPin?: string;
   services: Service[];
   timeSlots: string[];
   gallery: GalleryItem[];

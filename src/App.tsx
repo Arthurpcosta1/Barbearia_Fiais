@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   Clock, 
   MapPin, 
@@ -11,10 +11,13 @@ import {
   Wand2, 
   BadgeCheck, 
   ExternalLink,
-  CheckCircle2
+  CheckCircle2,
+  Lock,
+  LogOut
 } from 'lucide-react';
 import { LogoMark } from './components/LogoMark';
 import { EditModal } from './components/EditModal';
+import { AdminLoginModal } from './components/AdminLoginModal';
 import { 
   loadBarbershopConfig, 
   saveBarbershopConfig, 
@@ -24,15 +27,135 @@ import {
 } from './data/barbershop';
 import { BarbershopConfig } from './types';
 
+function getTodayDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateBR(dateString: string): string {
+  if (!dateString) return '';
+  const parts = dateString.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return dateString;
+}
+
+type BookedSlotsMap = Record<string, string[]>;
+
+const BOOKED_SLOTS_STORAGE_KEY = 'barbearia_fiais_booked_slots';
+
+function loadBookedSlotsFromStorage(): BookedSlotsMap {
+  try {
+    const raw = localStorage.getItem(BOOKED_SLOTS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'object' && parsed !== null) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load booked slots from storage', e);
+  }
+  return {};
+}
+
+function saveBookedSlotToStorage(dateStr: string, timeStr: string): BookedSlotsMap {
+  try {
+    const current = loadBookedSlotsFromStorage();
+    const currentForDate = current[dateStr] || [];
+    if (!currentForDate.includes(timeStr)) {
+      const updated: BookedSlotsMap = {
+        ...current,
+        [dateStr]: [...currentForDate, timeStr],
+      };
+      localStorage.setItem(BOOKED_SLOTS_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    }
+    return current;
+  } catch (e) {
+    console.error('Failed to save booked slot', e);
+    return loadBookedSlotsFromStorage();
+  }
+}
+
 export default function App() {
   const [config, setConfig] = useState<BarbershopConfig>(() => loadBarbershopConfig());
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('barbearia_fiais_admin_auth') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
+
+  // Check URL query param ?admin or #admin on mount
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('admin') || window.location.hash.includes('admin')) {
+        if (!isAdminAuthenticated) {
+          setIsAdminLoginOpen(true);
+        } else {
+          setIsEditOpen(true);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [isAdminAuthenticated]);
+
+  const handleAdminLoginSuccess = () => {
+    setIsAdminAuthenticated(true);
+    try {
+      localStorage.setItem('barbearia_fiais_admin_auth', 'true');
+    } catch (e) {
+      console.error(e);
+    }
+    setIsAdminLoginOpen(false);
+    setIsEditOpen(true);
+  };
+
+  const handleAdminLogout = () => {
+    setIsAdminAuthenticated(false);
+    try {
+      localStorage.removeItem('barbearia_fiais_admin_auth');
+    } catch (e) {
+      console.error(e);
+    }
+    setIsEditOpen(false);
+  };
 
   // Booking states
   const [selectedServiceId, setSelectedServiceId] = useState<string>(() => config.services[0]?.id || 'cabelo');
-  const [selectedDay, setSelectedDay] = useState<'Hoje' | 'Amanhã' | 'Sábado'>('Hoje');
+  const todayDateStr = useMemo(() => getTodayDateString(), []);
+  const [selectedDate, setSelectedDate] = useState<string>(todayDateStr);
   const [selectedTime, setSelectedTime] = useState<string>('14:00');
   const [clientName, setClientName] = useState<string>('');
+
+  // Booked slots map from localStorage
+  const [bookedSlots, setBookedSlots] = useState<BookedSlotsMap>(() => loadBookedSlotsFromStorage());
+
+  const bookedSlotsForSelectedDate = useMemo(() => {
+    return bookedSlots[selectedDate] || [];
+  }, [bookedSlots, selectedDate]);
+
+  // If current selectedTime is booked for the chosen date, automatically select first available
+  useEffect(() => {
+    if (bookedSlotsForSelectedDate.includes(selectedTime)) {
+      const firstAvailable = config.timeSlots.find(
+        (slot) => !bookedSlotsForSelectedDate.includes(slot)
+      );
+      if (firstAvailable) {
+        setSelectedTime(firstAvailable);
+      }
+    }
+  }, [selectedDate, bookedSlotsForSelectedDate, selectedTime, config.timeSlots]);
 
   const selectedService = useMemo(() => {
     return config.services.find((s) => s.id === selectedServiceId) || config.services[0] || {
@@ -45,20 +168,41 @@ export default function App() {
     };
   }, [config.services, selectedServiceId]);
 
+  const formattedDate = useMemo(() => {
+    return formatDateBR(selectedDate);
+  }, [selectedDate]);
+
   const whatsappBookingUrl = useMemo(() => {
     return buildWhatsAppBookingLink(
       config.whatsappNumber,
       selectedService.name,
       selectedService.price,
       selectedTime,
-      selectedDay,
+      formattedDate,
       clientName
     );
-  }, [config.whatsappNumber, selectedService, selectedTime, selectedDay, clientName]);
+  }, [config.whatsappNumber, selectedService, selectedTime, formattedDate, clientName]);
 
   const genericWhatsAppUrl = useMemo(() => {
     return buildGenericWhatsAppLink(config.whatsappNumber);
   }, [config.whatsappNumber]);
+
+  const handleBookingClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!selectedDate || !selectedTime) {
+      e.preventDefault();
+      return;
+    }
+
+    if (bookedSlotsForSelectedDate.includes(selectedTime)) {
+      e.preventDefault();
+      alert('Este horário já foi reservado para esta data. Por favor, escolha outro horário disponível.');
+      return;
+    }
+
+    // Save chosen slot to localStorage immediately
+    const updated = saveBookedSlotToStorage(selectedDate, selectedTime);
+    setBookedSlots(updated);
+  };
 
   const handleSaveConfig = (newConfig: BarbershopConfig) => {
     setConfig(newConfig);
@@ -93,23 +237,47 @@ export default function App() {
             <span className="font-display text-lg tracking-wider text-[#d1a868]">BARBEARIA FIAIS</span>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              id="btn-edit-site"
-              type="button"
-              onClick={() => setIsEditOpen(true)}
-              className="inline-flex items-center gap-1 rounded border border-[#d1a868]/40 px-2.5 py-1 text-xs font-semibold text-[#d1a868] hover:bg-[#d1a868] hover:text-[#051522] transition"
-              title="Editar número, preços ou dados"
-            >
-              <Edit3 className="h-3 w-3" />
-              <span>Editar</span>
-            </button>
+          <div className="flex items-center gap-2 sm:gap-3">
+            {!isAdminAuthenticated ? (
+              <button
+                id="btn-header-admin-login"
+                type="button"
+                onClick={() => setIsAdminLoginOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#d1a868]/40 bg-[#061826] px-2.5 py-1.5 text-xs font-semibold text-[#d1a868] hover:bg-[#d1a868]/15 hover:border-[#d1a868] transition shadow-sm"
+                title="Acesso exclusivo ao barbeiro e proprietário"
+              >
+                <Lock className="h-3 w-3 text-[#d1a868]" />
+                <span>Área do Dono</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <button
+                  id="btn-edit-site"
+                  type="button"
+                  onClick={() => setIsEditOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#d1a868] bg-[#d1a868] px-2.5 py-1.5 text-xs font-bold text-[#051522] hover:bg-[#e0b879] transition shadow-sm"
+                  title="Painel de controle do proprietário"
+                >
+                  <Edit3 className="h-3 w-3" />
+                  <span>Editar Página</span>
+                </button>
+                <button
+                  id="btn-admin-logout-header"
+                  type="button"
+                  onClick={handleAdminLogout}
+                  className="rounded-lg border border-white/10 px-2 py-1.5 text-xs text-[#f4efe6]/60 hover:text-rose-300 hover:border-rose-400/40 transition"
+                  title="Sair do modo administrador"
+                >
+                  <LogOut className="h-3 w-3" />
+                </button>
+              </div>
+            )}
             <a
               id="btn-header-whatsapp"
               href={genericWhatsAppUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 transition"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 transition shadow-sm"
             >
               <MessageCircle className="h-3.5 w-3.5" />
               <span>WhatsApp</span>
@@ -181,47 +349,71 @@ export default function App() {
             </div>
           </div>
 
-          {/* 2. Escolha o Dia */}
+          {/* 2. Escolha a Data */}
           <div className="space-y-2 mb-5">
-            <label className="text-xs font-bold uppercase tracking-wider text-[#d1a868] flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5" />
-              2. Escolha o dia
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {(['Hoje', 'Amanhã', 'Sábado'] as const).map((day) => (
-                <button
-                  key={day}
-                  type="button"
-                  onClick={() => setSelectedDay(day)}
-                  className={`py-2 rounded-lg border text-xs font-bold transition ${
-                    selectedDay === day
-                      ? 'border-[#d1a868] bg-[#d1a868] text-[#071b2b]'
-                      : 'border-[#d1a868]/20 bg-[#061826] text-white hover:border-[#d1a868]/50'
-                  }`}
-                >
-                  {day}
-                </button>
-              ))}
+            <div className="flex items-center justify-between">
+              <label htmlFor="input-booking-date" className="text-xs font-bold uppercase tracking-wider text-[#d1a868] flex items-center gap-1.5">
+                <Calendar className="h-3.5 w-3.5" />
+                2. Escolha a data
+              </label>
+              <span className="text-[11px] font-semibold text-[#d1a868]">
+                {formattedDate}
+              </span>
             </div>
+            <div className="relative">
+              <input
+                id="input-booking-date"
+                type="date"
+                min={todayDateStr}
+                value={selectedDate}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setSelectedDate(e.target.value);
+                  }
+                }}
+                className="w-full rounded-xl border border-[#d1a868]/40 bg-[#061826] px-4 py-3 text-sm font-semibold text-[#f4efe6] shadow-inner focus:border-[#d1a868] focus:outline-none focus:ring-1 focus:ring-[#d1a868] [color-scheme:dark] cursor-pointer transition hover:border-[#d1a868]/70"
+              />
+            </div>
+            <p className="text-[11px] text-[#f4efe6]/50">
+              Data selecionada: <strong className="text-[#d1a868]">{formattedDate}</strong>
+            </p>
           </div>
 
           {/* 3. Escolha o Horário */}
           <div className="space-y-2 mb-5">
-            <label className="text-xs font-bold uppercase tracking-wider text-[#d1a868] flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5" />
-              3. Escolha o horário
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wider text-[#d1a868] flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5" />
+                3. Escolha o horário
+              </label>
+              {bookedSlotsForSelectedDate.length > 0 && (
+                <span className="text-[11px] text-rose-400 font-medium">
+                  {bookedSlotsForSelectedDate.length} {bookedSlotsForSelectedDate.length === 1 ? 'horário reservado' : 'horários reservados'}
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-4 gap-2">
               {config.timeSlots.map((time) => {
-                const isSelected = selectedTime === time;
+                const isBooked = bookedSlotsForSelectedDate.includes(time);
+                const isSelected = selectedTime === time && !isBooked;
+
                 return (
                   <button
                     key={time}
+                    id={`timeslot-${time.replace(':', '')}`}
                     type="button"
-                    onClick={() => setSelectedTime(time)}
+                    disabled={isBooked}
+                    onClick={() => {
+                      if (!isBooked) {
+                        setSelectedTime(time);
+                      }
+                    }}
+                    title={isBooked ? 'Horário já reservado para esta data' : `Selecionar ${time}`}
                     className={`py-2 rounded-lg border text-xs font-bold transition ${
-                      isSelected
-                        ? 'border-[#d1a868] bg-[#d1a868] text-[#071b2b]'
+                      isBooked
+                        ? 'line-through cursor-not-allowed opacity-50 border-white/10 bg-[#061826]/40 text-[#f4efe6]/40'
+                        : isSelected
+                        ? 'border-[#d1a868] bg-[#d1a868] text-[#071b2b] shadow-sm'
                         : 'border-[#d1a868]/20 bg-[#061826] text-white hover:border-[#d1a868]/50'
                     }`}
                   >
@@ -252,7 +444,7 @@ export default function App() {
           <div className="rounded-xl bg-[#051522] p-4 border border-[#d1a868]/20 mb-4">
             <p className="text-xs text-[#f4efe6]/70 mb-1">Resumo do agendamento:</p>
             <div className="flex items-center justify-between font-bold text-sm text-white">
-              <span>{selectedService.name} • {selectedDay} às {selectedTime}</span>
+              <span>{selectedService.name} • {formattedDate} às {selectedTime}</span>
               <span className="text-[#d1a868] font-display text-base">{selectedService.price}</span>
             </div>
           </div>
@@ -263,6 +455,7 @@ export default function App() {
             href={whatsappBookingUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={handleBookingClick}
             className="flex w-full items-center justify-center gap-2.5 rounded-xl bg-emerald-600 px-5 py-4 text-center text-base font-extrabold uppercase tracking-wide text-white shadow-[0_8px_24px_rgba(5,150,105,0.4)] transition hover:bg-emerald-500 active:scale-[0.99]"
           >
             <MessageCircle className="h-6 w-6 shrink-0" />
@@ -355,8 +548,53 @@ export default function App() {
               {config.instagramHandle}
             </a>
           </div>
+          <div className="pt-3">
+            {!isAdminAuthenticated ? (
+              <button
+                id="btn-footer-admin-access"
+                type="button"
+                onClick={() => setIsAdminLoginOpen(true)}
+                className="inline-flex items-center gap-1.5 text-xs text-[#d1a868]/75 hover:text-[#d1a868] transition"
+                title="Acesso exclusivo ao barbeiro e proprietário"
+              >
+                <Lock className="h-3.5 w-3.5 text-[#d1a868]" />
+                <span>Acesso do Dono / Barbeiro</span>
+              </button>
+            ) : (
+              <div className="inline-flex items-center gap-2 rounded-full border border-[#d1a868]/40 bg-[#051522] px-3 py-1">
+                <span className="text-[11px] font-semibold text-[#d1a868]">
+                  Modo Dono Ativo
+                </span>
+                <button
+                  id="btn-footer-edit"
+                  type="button"
+                  onClick={() => setIsEditOpen(true)}
+                  className="text-[11px] text-[#f4efe6] underline hover:text-[#d1a868]"
+                >
+                  Editar Página
+                </button>
+                <span className="text-[#f4efe6]/30">•</span>
+                <button
+                  id="btn-footer-logout"
+                  type="button"
+                  onClick={handleAdminLogout}
+                  className="text-[11px] text-rose-300 hover:underline"
+                >
+                  Sair
+                </button>
+              </div>
+            )}
+          </div>
         </footer>
       </main>
+
+      {/* ADMIN LOGIN MODAL */}
+      <AdminLoginModal
+        isOpen={isAdminLoginOpen}
+        onClose={() => setIsAdminLoginOpen(false)}
+        onSuccess={handleAdminLoginSuccess}
+        currentPin={config.adminPin || '1999'}
+      />
 
       {/* EDIT MODAL FOR ARTHUR & OWNER */}
       <EditModal

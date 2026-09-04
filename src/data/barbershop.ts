@@ -16,6 +16,7 @@ export const initialBarbershopConfig: BarbershopConfig = {
   openingDays: 'Segunda a Sábado',
   openingHours: '09:00 às 19:00',
   googleMapsUrl: 'https://www.google.com/maps/search/?api=1&query=S%C3%ADtio%20S%C3%A3o%20Braz%2C%20130%20-%20S%C3%ADtio%20dos%20Pintos%2C%20Recife',
+  adminPin: '1999',
   services: [
     {
       id: 'cabelo',
@@ -103,6 +104,7 @@ export function loadBarbershopConfig(): BarbershopConfig {
         whatsappNumber: (!parsed.whatsappNumber || parsed.whatsappNumber === '5585999999999') ? '558199571999' : parsed.whatsappNumber,
         phoneDisplay: (!parsed.phoneDisplay || parsed.phoneDisplay === '(85) 99999-9999') ? '(81) 9957-1999' : parsed.phoneDisplay,
         tagline: '',
+        adminPin: parsed.adminPin || initialBarbershopConfig.adminPin || '1999',
         services: Array.isArray(parsed.services) && parsed.services.length > 0 ? parsed.services : initialBarbershopConfig.services,
         timeSlots: Array.isArray(parsed.timeSlots) && parsed.timeSlots.length > 0 ? parsed.timeSlots : initialBarbershopConfig.timeSlots,
         gallery: Array.isArray(parsed.gallery) && parsed.gallery.length > 0 ? parsed.gallery : initialBarbershopConfig.gallery,
@@ -150,13 +152,27 @@ export function buildWhatsAppBookingLink(
   clientName?: string
 ): string {
   const cleanNumber = cleanPhoneForWhatsApp(whatsappNumber);
-  const clientLine = clientName && clientName.trim() ? `👤 *Cliente:* ${clientName.trim()}\n` : '';
-  const message = `💈 *Novo Agendamento - Barbearia Fiais*\n\n${clientLine}✂️ *Serviço:* ${serviceName} (${servicePrice})\n📅 *Dia:* ${dateText}\n⏰ *Horário:* ${timeSlot}\n\nOlá, gostaria de confirmar esse horário!`;
-  return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
+  const lines: string[] = [
+    '*Novo Agendamento - Barbearia Fiais*',
+    ''
+  ];
+
+  if (clientName && clientName.trim()) {
+    lines.push(`*Cliente:* ${clientName.trim()}`);
+  }
+
+  lines.push(`*Serviço:* ${serviceName} (${servicePrice})`);
+  lines.push(`*Dia:* ${dateText}`);
+  lines.push(`*Horário:* ${timeSlot}`);
+  lines.push('');
+  lines.push('Olá! Gostaria de confirmar este agendamento.');
+
+  const message = lines.join('\n');
+  return `https://api.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`;
 }
 
 export function buildGenericWhatsAppLink(whatsappNumber: string, customMessage?: string): string {
   const cleanNumber = cleanPhoneForWhatsApp(whatsappNumber);
   const message = customMessage || 'Olá! Gostaria de agendar um horário na Barbearia Fiais.';
-  return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
+  return `https://api.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`;
 }
