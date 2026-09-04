@@ -1,0 +1,6 @@
+{
+  "name": "Barbearia Fiais",
+  "description": "Site oficial da Barbearia Fiais com agendamento online via WhatsApp, tabela de serviços e galeria de fotos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

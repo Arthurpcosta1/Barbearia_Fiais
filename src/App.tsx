@@ -1,0 +1,371 @@
+import React, { useMemo, useState } from 'react';
+import { 
+  Clock, 
+  MapPin, 
+  MessageCircle, 
+  Scissors, 
+  Sparkles, 
+  Edit3, 
+  Calendar, 
+  User, 
+  Wand2, 
+  BadgeCheck, 
+  ExternalLink,
+  CheckCircle2
+} from 'lucide-react';
+import { LogoMark } from './components/LogoMark';
+import { EditModal } from './components/EditModal';
+import { 
+  loadBarbershopConfig, 
+  saveBarbershopConfig, 
+  resetBarbershopConfig, 
+  buildWhatsAppBookingLink,
+  buildGenericWhatsAppLink 
+} from './data/barbershop';
+import { BarbershopConfig } from './types';
+
+export default function App() {
+  const [config, setConfig] = useState<BarbershopConfig>(() => loadBarbershopConfig());
+  const [isEditOpen, setIsEditOpen] = useState(false);
+
+  // Booking states
+  const [selectedServiceId, setSelectedServiceId] = useState<string>(() => config.services[0]?.id || 'cabelo');
+  const [selectedDay, setSelectedDay] = useState<'Hoje' | 'Amanhã' | 'Sábado'>('Hoje');
+  const [selectedTime, setSelectedTime] = useState<string>('14:00');
+  const [clientName, setClientName] = useState<string>('');
+
+  const selectedService = useMemo(() => {
+    return config.services.find((s) => s.id === selectedServiceId) || config.services[0] || {
+      id: 'cabelo',
+      name: 'Cabelo',
+      price: 'R$ 35,00',
+      duration: '45 min',
+      description: 'Corte tradicional',
+      iconName: 'Scissors',
+    };
+  }, [config.services, selectedServiceId]);
+
+  const whatsappBookingUrl = useMemo(() => {
+    return buildWhatsAppBookingLink(
+      config.whatsappNumber,
+      selectedService.name,
+      selectedService.price,
+      selectedTime,
+      selectedDay,
+      clientName
+    );
+  }, [config.whatsappNumber, selectedService, selectedTime, selectedDay, clientName]);
+
+  const genericWhatsAppUrl = useMemo(() => {
+    return buildGenericWhatsAppLink(config.whatsappNumber);
+  }, [config.whatsappNumber]);
+
+  const handleSaveConfig = (newConfig: BarbershopConfig) => {
+    setConfig(newConfig);
+    saveBarbershopConfig(newConfig);
+  };
+
+  const handleResetConfig = () => {
+    const defaultConf = resetBarbershopConfig();
+    setConfig(defaultConf);
+  };
+
+  const renderServiceIcon = (iconName: string) => {
+    switch (iconName) {
+      case 'Wand2':
+        return <Wand2 className="h-4 w-4" />;
+      case 'BadgeCheck':
+        return <BadgeCheck className="h-4 w-4" />;
+      case 'Sparkles':
+        return <Sparkles className="h-4 w-4" />;
+      case 'Scissors':
+      default:
+        return <Scissors className="h-4 w-4" />;
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#071b2b] text-[#f4efe6] antialiased selection:bg-[#d1a868] selection:text-[#071b2b]">
+      {/* Top minimal bar */}
+      <header className="border-b border-[#d1a868]/20 bg-[#051522]/90 backdrop-blur-md px-4 py-3">
+        <div className="mx-auto flex max-w-2xl items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-display text-lg tracking-wider text-[#d1a868]">BARBEARIA FIAIS</span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              id="btn-edit-site"
+              type="button"
+              onClick={() => setIsEditOpen(true)}
+              className="inline-flex items-center gap-1 rounded border border-[#d1a868]/40 px-2.5 py-1 text-xs font-semibold text-[#d1a868] hover:bg-[#d1a868] hover:text-[#051522] transition"
+              title="Editar número, preços ou dados"
+            >
+              <Edit3 className="h-3 w-3" />
+              <span>Editar</span>
+            </button>
+            <a
+              id="btn-header-whatsapp"
+              href={genericWhatsAppUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 transition"
+            >
+              <MessageCircle className="h-3.5 w-3.5" />
+              <span>WhatsApp</span>
+            </a>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-2xl px-4 py-6 sm:py-8 space-y-6">
+        {/* LOGO HERO - Direct, clean */}
+        <section className="text-center">
+          <div className="mb-3">
+            <LogoMark />
+          </div>
+          <p className="text-xs text-[#f4efe6]/70">
+            WhatsApp: <strong className="text-[#d1a868]">{config.phoneDisplay}</strong>
+          </p>
+        </section>
+
+        {/* PRIMARY BOOKING CARD */}
+        <section id="agendamento" className="rounded-2xl border border-[#d1a868]/30 bg-[#092237] p-5 sm:p-6 shadow-2xl">
+          <div className="mb-5 flex items-center justify-between border-b border-[#d1a868]/20 pb-3">
+            <div>
+              <h2 className="text-lg sm:text-xl font-display uppercase tracking-wider text-[#f4efe6]">
+                Agendar Horário
+              </h2>
+              <p className="text-xs text-[#d1a868]">
+                Selecione e envie a notificação direto para o barbeiro
+              </p>
+            </div>
+            <div className="rounded-full bg-emerald-500/20 px-2.5 py-1 text-[11px] font-bold text-emerald-400 border border-emerald-500/30">
+              Online
+            </div>
+          </div>
+
+          {/* 1. Escolha o Serviço */}
+          <div className="space-y-2 mb-5">
+            <label className="text-xs font-bold uppercase tracking-wider text-[#d1a868] flex items-center gap-1.5">
+              <Scissors className="h-3.5 w-3.5" />
+              1. Escolha o serviço
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {config.services.map((service) => {
+                const isSelected = selectedServiceId === service.id;
+                return (
+                  <button
+                    key={service.id}
+                    id={`service-select-${service.id}`}
+                    type="button"
+                    onClick={() => setSelectedServiceId(service.id)}
+                    className={`flex items-center justify-between rounded-xl border p-3 text-left transition ${
+                      isSelected
+                        ? 'border-[#d1a868] bg-[#d1a868] text-[#071b2b] shadow-md scale-[1.01]'
+                        : 'border-[#d1a868]/25 bg-[#061826] text-white hover:border-[#d1a868]/60 hover:bg-[#071d2e]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className={isSelected ? 'text-[#071b2b]' : 'text-[#d1a868]'}>
+                        {renderServiceIcon(service.iconName)}
+                      </span>
+                      <p className="font-bold text-sm leading-tight">{service.name}</p>
+                    </div>
+                    <span className={`font-display text-base font-bold ${isSelected ? 'text-[#071b2b]' : 'text-[#d1a868]'}`}>
+                      {service.price}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 2. Escolha o Dia */}
+          <div className="space-y-2 mb-5">
+            <label className="text-xs font-bold uppercase tracking-wider text-[#d1a868] flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5" />
+              2. Escolha o dia
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {(['Hoje', 'Amanhã', 'Sábado'] as const).map((day) => (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => setSelectedDay(day)}
+                  className={`py-2 rounded-lg border text-xs font-bold transition ${
+                    selectedDay === day
+                      ? 'border-[#d1a868] bg-[#d1a868] text-[#071b2b]'
+                      : 'border-[#d1a868]/20 bg-[#061826] text-white hover:border-[#d1a868]/50'
+                  }`}
+                >
+                  {day}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 3. Escolha o Horário */}
+          <div className="space-y-2 mb-5">
+            <label className="text-xs font-bold uppercase tracking-wider text-[#d1a868] flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" />
+              3. Escolha o horário
+            </label>
+            <div className="grid grid-cols-4 gap-2">
+              {config.timeSlots.map((time) => {
+                const isSelected = selectedTime === time;
+                return (
+                  <button
+                    key={time}
+                    type="button"
+                    onClick={() => setSelectedTime(time)}
+                    className={`py-2 rounded-lg border text-xs font-bold transition ${
+                      isSelected
+                        ? 'border-[#d1a868] bg-[#d1a868] text-[#071b2b]'
+                        : 'border-[#d1a868]/20 bg-[#061826] text-white hover:border-[#d1a868]/50'
+                    }`}
+                  >
+                    {time}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 4. Nome do Cliente (Opcional) */}
+          <div className="space-y-1.5 mb-6">
+            <label className="text-xs font-bold uppercase tracking-wider text-[#d1a868] flex items-center gap-1.5">
+              <User className="h-3.5 w-3.5" />
+              4. Seu nome (opcional)
+            </label>
+            <input
+              id="input-client-name"
+              type="text"
+              placeholder="Digite seu nome para o barbeiro"
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+              className="w-full rounded-lg border border-[#d1a868]/30 bg-[#061826] px-3.5 py-2.5 text-sm text-white placeholder-[#f4efe6]/40 focus:border-[#d1a868] focus:outline-none"
+            />
+          </div>
+
+          {/* SUMMARY & ACTION BUTTON */}
+          <div className="rounded-xl bg-[#051522] p-4 border border-[#d1a868]/20 mb-4">
+            <p className="text-xs text-[#f4efe6]/70 mb-1">Resumo do agendamento:</p>
+            <div className="flex items-center justify-between font-bold text-sm text-white">
+              <span>{selectedService.name} • {selectedDay} às {selectedTime}</span>
+              <span className="text-[#d1a868] font-display text-base">{selectedService.price}</span>
+            </div>
+          </div>
+
+          {/* Big WhatsApp Action Button */}
+          <a
+            id="btn-confirm-agendamento-whatsapp"
+            href={whatsappBookingUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex w-full items-center justify-center gap-2.5 rounded-xl bg-emerald-600 px-5 py-4 text-center text-base font-extrabold uppercase tracking-wide text-white shadow-[0_8px_24px_rgba(5,150,105,0.4)] transition hover:bg-emerald-500 active:scale-[0.99]"
+          >
+            <MessageCircle className="h-6 w-6 shrink-0" />
+            <span>Notificar Barbeiro no WhatsApp</span>
+          </a>
+        </section>
+
+        {/* COMPACT LOCATION & CONTACT INFO */}
+        <section className="rounded-2xl border border-[#d1a868]/20 bg-[#092237]/70 p-4 sm:p-5 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 rounded-lg bg-[#d1a868]/20 p-2 text-[#d1a868]">
+              <MapPin className="h-5 w-5" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-bold text-white">Localização</h3>
+              <p className="text-xs text-[#f4efe6]/70 mt-0.5">
+                {config.address} - {config.neighborhood}, {config.city}
+              </p>
+              <a
+                id="btn-google-maps"
+                href={config.googleMapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-[#d1a868] hover:underline"
+              >
+                <span>Abrir no Google Maps</span>
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+          </div>
+
+          <div className="border-t border-[#d1a868]/15 pt-3 flex items-start gap-3">
+            <div className="mt-0.5 rounded-lg bg-[#d1a868]/20 p-2 text-[#d1a868]">
+              <Clock className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white">Horário de Funcionamento</h3>
+              <p className="text-xs text-[#f4efe6]/70 mt-0.5">
+                {config.openingDays}: {config.openingHours}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* COMPACT PHOTOS GALLERY */}
+        {config.gallery && config.gallery.length > 0 && (
+          <section className="space-y-2">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-[#d1a868]">
+              Cortes na Barbearia Fiais
+            </h3>
+            <div className="grid grid-cols-3 gap-2">
+              {config.gallery.map((photo) => (
+                <div 
+                  key={photo.id}
+                  className="aspect-square overflow-hidden rounded-xl border border-[#d1a868]/20 bg-[#092237]"
+                >
+                  <img
+                    src={photo.src}
+                    alt={photo.alt}
+                    className="h-full w-full object-cover transition hover:scale-105"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* MINIMAL FOOTER */}
+        <footer className="pt-4 pb-8 text-center text-xs text-[#f4efe6]/50 space-y-2">
+          <p>© {new Date().getFullYear()} Barbearia Fiais • Recife - PE</p>
+          <div className="flex items-center justify-center gap-4 text-xs font-semibold text-[#d1a868]">
+            <a
+              id="link-footer-whatsapp"
+              href={genericWhatsAppUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline"
+            >
+              WhatsApp: {config.phoneDisplay}
+            </a>
+            <span>•</span>
+            <a
+              id="link-footer-instagram"
+              href={config.instagramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline"
+            >
+              {config.instagramHandle}
+            </a>
+          </div>
+        </footer>
+      </main>
+
+      {/* EDIT MODAL FOR ARTHUR & OWNER */}
+      <EditModal
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        config={config}
+        onSave={handleSaveConfig}
+        onReset={handleResetConfig}
+      />
+    </div>
+  );
+}
