@@ -13,7 +13,10 @@ import {
   ExternalLink,
   CheckCircle2,
   Lock,
-  LogOut
+  LogOut,
+  AlertTriangle,
+  X,
+  RefreshCw
 } from 'lucide-react';
 import { LogoMark } from './components/LogoMark';
 import { EditModal } from './components/EditModal';
@@ -25,6 +28,13 @@ import {
   buildWhatsAppBookingLink,
   buildGenericWhatsAppLink 
 } from './data/barbershop';
+import { 
+  getBookedSlotsByDate, 
+  bookSlotInDatabase, 
+  clearBookedSlotsForDate, 
+  subscribeToAgendamentos, 
+  isSupabaseConfigured 
+} from './lib/supabase';
 import { BarbershopConfig } from './types';
 
 function getTodayDateString(): string {
@@ -138,8 +148,58 @@ export default function App() {
   const [selectedTime, setSelectedTime] = useState<string>('14:00');
   const [clientName, setClientName] = useState<string>('');
 
-  // Booked slots map from localStorage
+  // Booked slots map (initial cached from localStorage, then synced with Supabase)
   const [bookedSlots, setBookedSlots] = useState<BookedSlotsMap>(() => loadBookedSlotsFromStorage());
+  const [isLoadingSlots, setIsLoadingSlots] = useState<boolean>(false);
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState<boolean>(false);
+  const [bookingConflictError, setBookingConflictError] = useState<string | null>(null);
+  const [bookingSuccessMessage, setBookingSuccessMessage] = useState<string | null>(null);
+
+  // Sync booked slots from Supabase whenever selectedDate changes
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoadingSlots(true);
+    setBookingConflictError(null);
+
+    getBookedSlotsByDate(selectedDate)
+      .then((slots) => {
+        if (!isMounted) return;
+        setBookedSlots((prev) => ({
+          ...prev,
+          [selectedDate]: slots,
+        }));
+      })
+      .catch((err) => {
+        console.error('Erro ao consultar horários no Supabase:', err);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingSlots(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedDate]);
+
+  // Real-time synchronization: listen for new bookings across all devices
+  useEffect(() => {
+    const unsubscribe = subscribeToAgendamentos((newAgendamento) => {
+      if (newAgendamento && newAgendamento.data && newAgendamento.horario) {
+        setBookedSlots((prev) => {
+          const currentList = prev[newAgendamento.data] || [];
+          if (currentList.includes(newAgendamento.horario)) return prev;
+          return {
+            ...prev,
+            [newAgendamento.data]: [...currentList, newAgendamento.horario],
+          };
+        });
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   const bookedSlotsForSelectedDate = useMemo(() => {
     return bookedSlots[selectedDate] || [];
@@ -187,21 +247,84 @@ export default function App() {
     return buildGenericWhatsAppLink(config.whatsappNumber);
   }, [config.whatsappNumber]);
 
-  const handleBookingClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!selectedDate || !selectedTime) {
-      e.preventDefault();
-      return;
-    }
+  // Handler: Submits booking to Supabase first, verifies collision, then opens WhatsApp
+  const handleBookingConfirm = async () => {
+    if (!selectedDate || !selectedTime) return;
+    setBookingConflictError(null);
+    setBookingSuccessMessage(null);
 
+    // Client-side quick check
     if (bookedSlotsForSelectedDate.includes(selectedTime)) {
-      e.preventDefault();
-      alert('Este horário já foi reservado para esta data. Por favor, escolha outro horário disponível.');
+      setBookingConflictError('Este horário já está reservado para este dia. Por favor, selecione outro horário livre.');
       return;
     }
 
-    // Save chosen slot to localStorage immediately
-    const updated = saveBookedSlotToStorage(selectedDate, selectedTime);
-    setBookedSlots(updated);
+    setIsSubmittingBooking(true);
+
+    try {
+      const result = await bookSlotInDatabase({
+        data: selectedDate,
+        horario: selectedTime,
+        servico: selectedService.name,
+        cliente_nome: clientName,
+      });
+
+      if (!result.success) {
+        setIsSubmittingBooking(false);
+        if (result.alreadyBooked) {
+          // Immediately block the slot on screen
+          setBookedSlots((prev) => {
+            const list = prev[selectedDate] || [];
+            if (list.includes(selectedTime)) return prev;
+            return {
+              ...prev,
+              [selectedDate]: [...list, selectedTime],
+            };
+          });
+          setBookingConflictError(
+            result.error || 'Atenção: este horário acabou de ser preenchido por outro cliente! Por favor, escolha outro horário disponível.'
+          );
+        } else {
+          setBookingConflictError(result.error || 'Erro ao sincronizar agendamento. Tente novamente.');
+        }
+        return;
+      }
+
+      // Successful insertion in Supabase
+      setBookedSlots((prev) => {
+        const list = prev[selectedDate] || [];
+        if (list.includes(selectedTime)) return prev;
+        return {
+          ...prev,
+          [selectedDate]: [...list, selectedTime],
+        };
+      });
+
+      setIsSubmittingBooking(false);
+      setBookingSuccessMessage('Horário bloqueado com sucesso! Redirecionando para o WhatsApp...');
+
+      // Open WhatsApp after database confirmation
+      setTimeout(() => {
+        window.open(whatsappBookingUrl, '_blank', 'noopener,noreferrer');
+      }, 250);
+
+      setTimeout(() => {
+        setBookingSuccessMessage(null);
+      }, 5000);
+    } catch (err: any) {
+      setIsSubmittingBooking(false);
+      setBookingConflictError('Ocorreu uma instabilidade na conexão com o banco. Tente novamente.');
+    }
+  };
+
+  const handleClearSlotsForDate = async () => {
+    if (!confirm(`Deseja liberar todos os agendamentos do dia ${formattedDate}?`)) return;
+    await clearBookedSlotsForDate(selectedDate);
+    setBookedSlots((prev) => {
+      const updated = { ...prev };
+      delete updated[selectedDate];
+      return updated;
+    });
   };
 
   const handleSaveConfig = (newConfig: BarbershopConfig) => {
@@ -381,16 +504,41 @@ export default function App() {
 
           {/* 3. Escolha o Horário */}
           <div className="space-y-2 mb-5">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-1">
               <label className="text-xs font-bold uppercase tracking-wider text-[#d1a868] flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5" />
                 3. Escolha o horário
               </label>
-              {bookedSlotsForSelectedDate.length > 0 && (
-                <span className="text-[11px] text-rose-400 font-medium">
-                  {bookedSlotsForSelectedDate.length} {bookedSlotsForSelectedDate.length === 1 ? 'horário reservado' : 'horários reservados'}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {isSupabaseConfigured ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-400" title="Sincronização global via Supabase ativa">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Horários em tempo real
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-[#f4efe6]/40" title="Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para sincronização em tempo real">
+                    Modo local
+                  </span>
+                )}
+                {isLoadingSlots && (
+                  <RefreshCw className="h-3 w-3 animate-spin text-[#d1a868]" title="Atualizando horários..." />
+                )}
+                {bookedSlotsForSelectedDate.length > 0 && (
+                  <span className="text-[11px] text-rose-400 font-medium">
+                    {bookedSlotsForSelectedDate.length} {bookedSlotsForSelectedDate.length === 1 ? 'reservado' : 'reservados'}
+                  </span>
+                )}
+                {isAdminAuthenticated && bookedSlotsForSelectedDate.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearSlotsForDate}
+                    className="text-[10px] text-rose-300 underline hover:text-rose-200"
+                    title="Liberar todos os agendamentos desta data"
+                  >
+                    (Liberar dia)
+                  </button>
+                )}
+              </div>
             </div>
             <div className="grid grid-cols-4 gap-2">
               {config.timeSlots.map((time) => {
@@ -440,6 +588,41 @@ export default function App() {
             />
           </div>
 
+          {/* ALERTA DE CONFLITO / AGENDAMENTO DUPLO */}
+          {bookingConflictError && (
+            <div
+              id="alert-booking-conflict"
+              role="alert"
+              className="mb-4 flex items-start gap-3 rounded-xl border border-rose-500/50 bg-rose-950/70 p-3.5 text-rose-200 shadow-lg animate-in fade-in"
+            >
+              <AlertTriangle className="h-5 w-5 shrink-0 text-rose-400 mt-0.5" />
+              <div className="flex-1 text-xs">
+                <p className="font-bold text-rose-300">Horário Indisponível</p>
+                <p className="mt-0.5 leading-relaxed text-[#f4efe6]/90">{bookingConflictError}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBookingConflictError(null)}
+                className="text-rose-400 hover:text-white transition p-1"
+                title="Fechar aviso"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          {/* SUCESSO DE RESERVA */}
+          {bookingSuccessMessage && (
+            <div
+              id="alert-booking-success"
+              role="status"
+              className="mb-4 flex items-center gap-2.5 rounded-xl border border-emerald-500/40 bg-emerald-950/70 p-3 text-xs text-emerald-200 shadow-md animate-in fade-in"
+            >
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+              <span>{bookingSuccessMessage}</span>
+            </div>
+          )}
+
           {/* SUMMARY & ACTION BUTTON */}
           <div className="rounded-xl bg-[#051522] p-4 border border-[#d1a868]/20 mb-4">
             <p className="text-xs text-[#f4efe6]/70 mb-1">Resumo do agendamento:</p>
@@ -449,18 +632,32 @@ export default function App() {
             </div>
           </div>
 
-          {/* Big WhatsApp Action Button */}
-          <a
+          {/* Big WhatsApp Action Button with Database Sync & Conflict Protection */}
+          <button
             id="btn-confirm-agendamento-whatsapp"
-            href={whatsappBookingUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={handleBookingClick}
-            className="flex w-full items-center justify-center gap-2.5 rounded-xl bg-emerald-600 px-5 py-4 text-center text-base font-extrabold uppercase tracking-wide text-white shadow-[0_8px_24px_rgba(5,150,105,0.4)] transition hover:bg-emerald-500 active:scale-[0.99]"
+            type="button"
+            disabled={isSubmittingBooking || bookedSlotsForSelectedDate.includes(selectedTime)}
+            onClick={handleBookingConfirm}
+            className={`flex w-full items-center justify-center gap-2.5 rounded-xl px-5 py-4 text-center text-base font-extrabold uppercase tracking-wide text-white shadow-[0_8px_24px_rgba(5,150,105,0.4)] transition active:scale-[0.99] ${
+              isSubmittingBooking
+                ? 'bg-emerald-700 opacity-80 cursor-wait'
+                : bookedSlotsForSelectedDate.includes(selectedTime)
+                ? 'bg-gray-700 opacity-50 cursor-not-allowed text-[#f4efe6]/60 shadow-none'
+                : 'bg-emerald-600 hover:bg-emerald-500 cursor-pointer shadow-emerald-900/40'
+            }`}
           >
-            <MessageCircle className="h-6 w-6 shrink-0" />
-            <span>Notificar Barbeiro no WhatsApp</span>
-          </a>
+            {isSubmittingBooking ? (
+              <>
+                <RefreshCw className="h-5 w-5 shrink-0 animate-spin" />
+                <span>Sincronizando e Abrindo WhatsApp...</span>
+              </>
+            ) : (
+              <>
+                <MessageCircle className="h-6 w-6 shrink-0" />
+                <span>Notificar Barbeiro no WhatsApp</span>
+              </>
+            )}
+          </button>
         </section>
 
         {/* COMPACT LOCATION & CONTACT INFO */}
