@@ -1,10 +1,18 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+// Credenciais públicas padrão do projeto Barbearia Fiais no Supabase
+const DEFAULT_SUPABASE_URL = "https://uimrkgpgogvxqrutrujv.supabase.co";
+const DEFAULT_SUPABASE_KEY = "sb_publishable_5i9uALTh6DFTP7BG830WcQ_0CHhkgEq";
+
+const supabaseUrl = (
+  import.meta.env.VITE_SUPABASE_URL || 
+  DEFAULT_SUPABASE_URL
+).trim();
+
 const supabaseAnonKey = (
   import.meta.env.VITE_SUPABASE_ANON_KEY || 
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 
-  ''
+  DEFAULT_SUPABASE_KEY
 ).trim();
 
 export const isSupabaseConfigured = Boolean(
